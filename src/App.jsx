@@ -2,16 +2,21 @@ import React, { useState, useRef } from 'react';
 import { Activity, Battery, Zap, Settings, ChevronRight, ChevronLeft, Plus } from 'lucide-react';
 import Draggable from 'react-draggable';
 
-// --- SUB-COMPONENT TO FIX THE "CRASH" ---
-// We move the Draggable logic into here so each box has its own "nodeRef"
-const CircuitComponent = ({ data, updateValue }) => {
-  const nodeRef = useRef(null); // This is the magic fix for the error
+// --- COMPONENT BOX (Now reports position!) ---
+const CircuitComponent = ({ data, updateValue, handleDrag }) => {
+  const nodeRef = useRef(null);
 
   return (
-    <Draggable nodeRef={nodeRef} grid={[20, 20]} bounds="parent" defaultPosition={{x: data.x, y: data.y}}>
+    <Draggable 
+      nodeRef={nodeRef} 
+      grid={[20, 20]} 
+      bounds="parent" 
+      position={{x: data.x, y: data.y}} // FORCE position from state
+      onDrag={(e, ui) => handleDrag(data.id, ui.x, ui.y)} // Tell App where we are
+    >
       <div 
-        ref={nodeRef} // We attach the ref here
-        className="absolute p-4 bg-white border-2 border-slate-900 rounded-xl shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] cursor-grab active:cursor-grabbing hover:border-blue-500 transition-colors group w-40"
+        ref={nodeRef}
+        className="absolute p-4 bg-white border-2 border-slate-900 rounded-xl shadow-[4px_4px_0px_0px_rgba(15,23,42,1)] cursor-grab active:cursor-grabbing hover:border-blue-500 transition-colors group w-40 z-10"
       >
         <div className="flex items-center gap-3">
           {data.type === 'Battery' ? <Battery className="text-red-500" size={20} /> : <Activity className="text-blue-500" size={20} />}
@@ -28,9 +33,9 @@ const CircuitComponent = ({ data, updateValue }) => {
             </div>
           </div>
         </div>
-        {/* Connector Nodes */}
-        <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-2 border-white group-hover:bg-blue-500" />
-        <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-2 border-white group-hover:bg-blue-500" />
+        {/* Connector Nodes (Visual Only) */}
+        <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
+        <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
       </div>
     </Draggable>
   );
@@ -40,12 +45,18 @@ const CircuitComponent = ({ data, updateValue }) => {
 const App = () => {
   const [showMath, setShowMath] = useState(false);
   const [components, setComponents] = useState([
-    { id: 1, type: 'Resistor', value: 100, x: 250, y: 150, unit: 'Ω' },
-    { id: 2, type: 'Battery', value: 9, x: 250, y: 350, unit: 'V' },
+    { id: 1, type: 'Resistor', value: 100, x: 400, y: 100, unit: 'Ω' },
+    { id: 2, type: 'Battery', value: 9, x: 100, y: 300, unit: 'V' },
   ]);
 
+  // Update numbers (Resistance/Voltage)
   const updateValue = (id, newValue) => {
     setComponents(components.map(c => c.id === id ? { ...c, value: parseFloat(newValue) || 0 } : c));
+  };
+
+  // Update position (X/Y coordinates)
+  const handleDrag = (id, x, y) => {
+    setComponents(components.map(c => c.id === id ? { ...c, x, y } : c));
   };
 
   return (
@@ -65,12 +76,29 @@ const App = () => {
       <div className="relative flex-grow bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:40px_40px]">
         <div className="absolute top-8 left-8 pointer-events-none">
           <h1 className="text-2xl font-black tracking-tight text-slate-800 italic uppercase">MISO<span className="text-blue-600 font-sans">CIRCUITS</span></h1>
-          <p className="text-[10px] font-mono text-slate-400 tracking-[0.2em]">NODE_0: GROUND // SYSTEM_STABLE</p>
+          <p className="text-[10px] font-mono text-slate-400 tracking-[0.2em]">SYSTEM_STATUS: CONNECTED</p>
         </div>
 
+        {/* --- WIRE LAYER --- */}
+        <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
+          <line 
+            // START: Right side of Battery (Component 2)
+            // We use components[1] because that's the Battery in your list
+            x1={components[1].x + 160} 
+            y1={components[1].y + 40} 
+            
+            // END: Left side of Resistor (Component 1)
+            // We use components[0] because that's the Resistor
+            x2={components[0].x} 
+            y2={components[0].y + 40} 
+            
+            stroke="#3b82f6" 
+            strokeWidth="4" 
+          />
+        </svg>
+        
         {components.map((comp) => (
-          // We use our new 'CircuitComponent' wrapper here
-          <CircuitComponent key={comp.id} data={comp} updateValue={updateValue} />
+          <CircuitComponent key={comp.id} data={comp} updateValue={updateValue} handleDrag={handleDrag} />
         ))}
       </div>
 
@@ -101,9 +129,6 @@ const App = () => {
                 [ 0 ]
               </div>
             </section>
-            <div className="p-4 bg-yellow-50 rounded-xl border border-yellow-200 text-[11px] text-yellow-800 leading-normal">
-              <strong>Junior Year Physics:</strong> Each resistor contributes conductance $G = 1/R$ to the diagonal of the system matrix.
-            </div>
           </div>
         </div>
       </div>
