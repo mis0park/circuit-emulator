@@ -1,9 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { Activity, Battery, Zap, Settings, ChevronRight, ChevronLeft, Plus, Triangle } from 'lucide-react';
+import { Activity, Battery, Zap, Settings, ChevronRight, ChevronLeft, Plus, Triangle, Trash2 } from 'lucide-react';
 import Draggable from 'react-draggable';
 
 // --- COMPONENT BOX ---
-const CircuitComponent = ({ data, updateValue, handleDrag }) => {
+const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent }) => {
   const nodeRef = useRef(null);
   
   const getIcon = () => {
@@ -24,13 +24,17 @@ const CircuitComponent = ({ data, updateValue, handleDrag }) => {
     >
       <div 
         ref={nodeRef}
-        // NOTE: We check type to apply different CSS Width/Height classes
         className={`absolute bg-white border-2 border-slate-900 rounded-xl shadow-lg cursor-grab active:cursor-grabbing hover:border-blue-500 transition-colors group z-10 
-        ${data.type === 'Ground' 
-          ? 'w-24 h-24 flex justify-center items-center' // Ground is 96x96px (centered)
-          : 'w-40 p-4' // Standard is 160px wide (padding determines height)
-        }`}
+        ${data.type === 'Ground' ? 'w-24 h-24 flex justify-center items-center' : 'w-40 p-4'}`}
       >
+        {/* Delete Button (Only shows on hover) */}
+        <button 
+          onClick={(e) => { e.stopPropagation(); deleteComponent(data.id); }}
+          className="absolute -top-3 -right-3 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:scale-110"
+        >
+          <Trash2 size={12} />
+        </button>
+
         <div className="flex items-center gap-3">
           {getIcon()}
           {data.type !== 'Ground' && (
@@ -49,7 +53,7 @@ const CircuitComponent = ({ data, updateValue, handleDrag }) => {
           )}
         </div>
         
-        {/* Visual Connector Ports - Perfectly Centered */}
+        {/* Ports */}
         <div className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
         <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full border-2 border-white" />
       </div>
@@ -62,7 +66,7 @@ const App = () => {
   const [showMath, setShowMath] = useState(false);
   
   const [components, setComponents] = useState([
-    { id: 1, type: 'Resistor', value: 84, x: 350, y: 100, unit: 'Ω' },
+    { id: 1, type: 'Resistor', value: 100, x: 350, y: 100, unit: 'Ω' },
     { id: 2, type: 'Battery', value: 9, x: 50, y: 100, unit: 'V' },
     { id: 3, type: 'Ground', value: 0, x: 600, y: 150, unit: 'V' },
   ]);
@@ -72,6 +76,30 @@ const App = () => {
     { id: 'w2', source: 1, target: 3 },
   ]);
 
+  // --- ACTIONS ---
+  
+  // 1. Add New Component
+  const addComponent = (type) => {
+    const newId = Math.max(...components.map(c => c.id), 0) + 1;
+    // Offset slightly so they don't stack perfectly
+    const offset = components.length * 20; 
+    const newComp = { 
+      id: newId, 
+      type: type, 
+      value: type === 'Resistor' ? 100 : 0, 
+      x: 100 + offset, 
+      y: 100 + offset, 
+      unit: type === 'Resistor' ? 'Ω' : 'V' 
+    };
+    setComponents([...components, newComp]);
+  };
+
+  // 2. Delete Component (and its wires!)
+  const deleteComponent = (id) => {
+    setComponents(components.filter(c => c.id !== id));
+    setWires(wires.filter(w => w.source !== id && w.target !== id));
+  };
+
   const updateValue = (id, newValue) => {
     setComponents(components.map(c => c.id === id ? { ...c, value: parseFloat(newValue) || 0 } : c));
   };
@@ -80,106 +108,77 @@ const App = () => {
     setComponents(components.map(c => c.id === id ? { ...c, x, y } : c));
   };
 
-  // --- NEW GEOMETRY ENGINE ---
-  // Calculates the exact "Port" locations based on component type
+  // Geometry Helper
   const getPortPosition = (id, isSource) => {
     const comp = components.find(c => c.id === id);
     if (!comp) return { x: 0, y: 0 };
-
-    // 1. Define dimensions based on type (matches CSS classes)
     const isGround = comp.type === 'Ground';
-    const width = isGround ? 96 : 160; // w-24 vs w-40
-    const height = isGround ? 96 : 80; // h-24 vs approx standard height
-    
-    // 2. Calculate Vertical Center (Y)
-    // The visual port is always at "top-1/2", so strictly Height / 2
-    const centerY = comp.y + (height / 2);
-
-    // 3. Calculate Horizontal Side (X)
-    // If it's a Source (Start), we use Right Side (x + width)
-    // If it's a Target (End), we use Left Side (x)
-    // (Note: This is a simple Left-to-Right flow assumption)
-    const portX = isSource ? (comp.x + width) : comp.x;
-
-    return { x: portX, y: centerY };
+    const width = isGround ? 96 : 160; 
+    const height = isGround ? 96 : 80;
+    return { 
+      x: isSource ? (comp.x + width) : comp.x, 
+      y: comp.y + (height / 2) 
+    };
   };
 
   return (
     <div className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans text-slate-900">
       
       {/* SIDEBAR UI */}
-      <div className="w-20 bg-white border-r border-slate-200 flex flex-col items-center py-8 gap-8 z-20 shadow-sm">
-        <div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg"><Zap size={24} fill="currentColor" /></div>
-        <div className="h-[1px] w-10 bg-slate-200" />
-        <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500">
-          <div className="w-12 h-12 border-2 border-dashed border-slate-300 rounded-xl flex items-center justify-center"><Plus size={20} /></div>
-          <span className="text-[10px] font-bold uppercase tracking-tighter">Add</span>
+      <div className="w-20 bg-white border-r border-slate-200 flex flex-col items-center py-8 gap-6 z-20 shadow-sm">
+        <div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg mb-4"><Zap size={24} fill="currentColor" /></div>
+        
+        {/* Component Buttons */}
+        <button onClick={() => addComponent('Resistor')} className="flex flex-col items-center gap-1 text-slate-400 hover:text-blue-500 hover:scale-105 transition-all">
+          <div className="w-10 h-10 border-2 border-slate-200 rounded-lg flex items-center justify-center bg-white"><Activity size={18} /></div>
+          <span className="text-[9px] font-bold uppercase">Resistor</span>
+        </button>
+
+        <button onClick={() => addComponent('Battery')} className="flex flex-col items-center gap-1 text-slate-400 hover:text-red-500 hover:scale-105 transition-all">
+          <div className="w-10 h-10 border-2 border-slate-200 rounded-lg flex items-center justify-center bg-white"><Battery size={18} /></div>
+          <span className="text-[9px] font-bold uppercase">Battery</span>
+        </button>
+
+        <button onClick={() => addComponent('Ground')} className="flex flex-col items-center gap-1 text-slate-400 hover:text-green-600 hover:scale-105 transition-all">
+          <div className="w-10 h-10 border-2 border-slate-200 rounded-lg flex items-center justify-center bg-white"><Triangle size={18} /></div>
+          <span className="text-[9px] font-bold uppercase">GND</span>
         </button>
       </div>
 
       {/* CANVAS */}
       <div className="relative flex-grow bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:40px_40px]">
-        <div className="absolute top-8 left-8 pointer-events-none">
-          <h1 className="text-2xl font-black tracking-tight text-slate-800 italic uppercase">MISO<span className="text-blue-600 font-sans">CIRCUITS</span></h1>
-          <p className="text-[10px] font-mono text-slate-400 tracking-[0.2em]">NETLIST_SIZE: {wires.length} CONNECTIONS</p>
-        </div>
-
-        {/* --- WIRE LAYER --- */}
+        {/* Wire Layer */}
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
           {wires.map(wire => {
-            // We now ask specifically for Source vs Target coordinates
-            const start = getPortPosition(wire.source, true);  // true = Right Side
-            const end = getPortPosition(wire.target, false); // false = Left Side
-            
-            return (
-              <line 
-                key={wire.id}
-                x1={start.x} 
-                y1={start.y} 
-                x2={end.x} 
-                y2={end.y} 
-                stroke="#3b82f6" 
-                strokeWidth="4" 
-              />
-            );
+            const start = getPortPosition(wire.source, true);
+            const end = getPortPosition(wire.target, false);
+            return <line key={wire.id} x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="#3b82f6" strokeWidth="4" />;
           })}
         </svg>
 
         {components.map((comp) => (
-          <CircuitComponent key={comp.id} data={comp} updateValue={updateValue} handleDrag={handleDrag} />
+          <CircuitComponent key={comp.id} data={comp} updateValue={updateValue} handleDrag={handleDrag} deleteComponent={deleteComponent} />
         ))}
       </div>
 
-      {/* MATH SIDEBAR */}
+      {/* MATH SIDEBAR (Simplified for now) */}
       <button onClick={() => setShowMath(!showMath)} className="absolute bottom-10 right-10 bg-slate-900 text-white px-8 py-4 rounded-full flex items-center gap-3 shadow-2xl hover:scale-105 transition-all z-50 font-bold">
         {showMath ? <ChevronRight size={20}/> : <ChevronLeft size={20}/>}
         {showMath ? "Hide Solver" : "Want to see the Math?"}
       </button>
 
-      {/* MATH PANEL */}
       <div className={`fixed top-0 right-0 h-full bg-white shadow-2xl border-l border-slate-200 transition-all duration-500 ${showMath ? 'w-[450px]' : 'w-0'} overflow-hidden z-40`}>
         <div className="p-10 w-[450px]">
-          <div className="flex items-center gap-3 mb-8 font-sans">
-            <div className="p-2 bg-blue-100 rounded-lg"><Settings className="text-blue-600" size={20} /></div>
-            <h2 className="text-xl font-bold italic tracking-tight uppercase">Matrix Analysis</h2>
-          </div>
-          <div className="space-y-8 font-sans">
-            <section>
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Netlist (Graph Edges)</h3>
-              <div className="bg-slate-100 p-4 rounded-xl border border-slate-200 font-mono text-xs text-slate-600">
-                {wires.map(w => (
-                  <div key={w.id}>Node {w.source} → Node {w.target}</div>
-                ))}
-              </div>
-            </section>
-            
-            <section>
-              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Admittance Matrix (G)</h3>
-              <div className="bg-slate-900 text-blue-400 p-6 rounded-2xl font-mono text-sm shadow-inner overflow-x-auto whitespace-nowrap">
-                [ {(1/components[0].value).toFixed(4)}  -{(1/components[0].value).toFixed(4)} ] <br/>
-                [ -{(1/components[0].value).toFixed(4)}  {(1/components[0].value).toFixed(4)} ]
-              </div>
-            </section>
+          <h2 className="text-xl font-bold italic tracking-tight uppercase mb-8">System Stats</h2>
+          <div className="space-y-6 font-mono text-sm">
+            <div className="bg-slate-100 p-4 rounded-xl">
+              <div className="text-slate-500 mb-2 uppercase text-xs font-bold">Total Components</div>
+              <div className="text-2xl font-bold">{components.length}</div>
+            </div>
+            <div className="bg-slate-100 p-4 rounded-xl">
+              <div className="text-slate-500 mb-2 uppercase text-xs font-bold">Active Wires</div>
+              <div className="text-2xl font-bold text-blue-600">{wires.length}</div>
+            </div>
           </div>
         </div>
       </div>
