@@ -115,17 +115,12 @@ const App = () => {
       const isOverPort = e.target.getAttribute('title')?.includes('Port');
       if (isOverPort) return;
       
-      // When user manually clicks, we pin the corner there.
-      // But we prefer "L-Shape" cornering to keep lines straight
       const lastPoint = drawingWire.waypoints.length > 0 
         ? drawingWire.waypoints[drawingWire.waypoints.length - 1] 
         : getPortPosition(drawingWire.sourceId, drawingWire.sourcePort);
         
       const elbowPoint = { x: mousePos.x, y: lastPoint.y };
 
-      // If this is the FIRST click, and we want to preserve the "Manhattan" look
-      // we might want to push the first point out a bit (Stub).
-      // But for simple "Click-to-Corner", just adding the elbow + mousePos is usually best.
       setDrawingWire({
         ...drawingWire,
         waypoints: [...drawingWire.waypoints, elbowPoint, mousePos]
@@ -139,24 +134,15 @@ const App = () => {
     } else {
       if (drawingWire.sourceId !== id) {
         
-        // Finalize: Calculate last segment
         const lastPoint = drawingWire.waypoints.length > 0 
           ? drawingWire.waypoints[drawingWire.waypoints.length - 1] 
           : getPortPosition(drawingWire.sourceId, drawingWire.sourcePort);
           
         const targetPos = getPortPosition(id, port);
         
-        // Auto-complete the path with an elbow
         const finalWaypoints = [...drawingWire.waypoints];
         
-        // If we have manual waypoints, just close the gap
-        // If we have NO waypoints (Direct connection), use the Auto-Manhattan logic
-        if (drawingWire.waypoints.length === 0) {
-            // "Ghost" becomes permanent
-            // We don't need to store points, just ID/Ports. 
-            // The Renderer will handle the "Auto Manhattan" logic if waypoints is empty.
-        } else {
-             // Add final elbow to snap to port
+        if (drawingWire.waypoints.length > 0) {
              finalWaypoints.push({ x: targetPos.x, y: lastPoint.y });
         }
 
@@ -196,24 +182,29 @@ const App = () => {
     };
   };
 
-  // --- THE HYBRID RENDERER ---
+  // --- RENDERING LOGIC ---
 
-  // 1. Logic for "Smart Manhattan" (Auto-Routing)
+  // 1. SMART AUTO-ROUTING (No clicks)
+  // Uses "Fixed Shoulder" logic: Always turn 40px out.
   const calculateManhattanPath = (start, end, sourcePort) => {
-     const STUB = 20;
-     const startStubX = sourcePort === 'right' ? start.x + STUB : start.x - STUB;
+     // FIXED SHOULDER: Turn exactly 2 grid cells away
+     const SHOULDER = 40; 
      
-     // Simple Midpoint Logic
-     const midX = (startStubX + end.x) / 2;
-     
+     // Calculate the Turning X
+     let turnX;
+     if (sourcePort === 'right') {
+         turnX = start.x + SHOULDER;
+     } else {
+         turnX = start.x - SHOULDER;
+     }
+
      return `M ${start.x} ${start.y} 
-             L ${startStubX} ${start.y} 
-             L ${midX} ${start.y} 
-             L ${midX} ${end.y} 
+             L ${turnX} ${start.y} 
+             L ${turnX} ${end.y} 
              L ${end.x} ${end.y}`;
   };
 
-  // 2. Logic for "Manual Waypoints"
+  // 2. MANUAL WAYPOINTS (User clicked)
   const calculateManualPath = (start, end, waypoints) => {
     let d = `M ${start.x} ${start.y}`;
     waypoints.forEach(pt => d += ` L ${pt.x} ${pt.y}`);
@@ -221,27 +212,22 @@ const App = () => {
     return d;
   };
 
-  // 3. Main Path Generator (Decides which to use)
+  // 3. MASTER PATH GENERATOR
   const getPath = (start, end, sourcePort, waypoints) => {
-    // If no manual waypoints exist, use Smart Manhattan
     if (!waypoints || waypoints.length === 0) {
         return calculateManhattanPath(start, end, sourcePort);
     }
-    // Otherwise, follow the user's clicks exactly
     return calculateManualPath(start, end, waypoints);
   };
   
-  // 4. Ghost Preview (Hybrid)
+  // 4. PREVIEW GENERATOR
   const getPreviewPath = (start, mouse, sourcePort, waypoints) => {
     if (waypoints.length === 0) {
-        // Mode A: Smart Auto-Preview
         return calculateManhattanPath(start, mouse, sourcePort);
     } else {
-        // Mode B: Manual Extension (Elbow from last click)
         const lastPoint = waypoints[waypoints.length - 1];
         let d = `M ${start.x} ${start.y}`;
         waypoints.forEach(pt => d += ` L ${pt.x} ${pt.y}`);
-        // Elbow logic: Horizontal to Mouse X -> Vertical to Mouse Y
         d += ` L ${mouse.x} ${lastPoint.y} L ${mouse.x} ${mouse.y}`;
         return d;
     }
@@ -254,7 +240,6 @@ const App = () => {
       onClick={handleCanvasClick}
       onContextMenu={handleRightClick}
     >
-      {/* SIDEBAR */}
       <div className="w-20 bg-white border-r border-slate-200 flex flex-col items-center py-6 gap-6 z-30 shadow-sm relative" onClick={(e) => e.stopPropagation()}>
         <div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg mb-4"><Zap size={24} fill="currentColor" /></div>
         {['Resistor', 'Battery', 'Ground'].map(type => (
@@ -273,7 +258,6 @@ const App = () => {
         )}
       </div>
 
-      {/* CANVAS */}
       <div 
         className="relative flex-grow"
         style={{
@@ -284,8 +268,6 @@ const App = () => {
       >
         <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-10">
           <svg className="w-full h-full overflow-visible">
-            
-            {/* SAVED WIRES */}
             {wires.map(wire => {
               const start = getPortPosition(wire.source, wire.sourcePort);
               const end = getPortPosition(wire.target, wire.targetPort);
@@ -293,7 +275,6 @@ const App = () => {
               return <path key={wire.id} d={path} stroke="#1e293b" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
             })}
             
-            {/* GHOST WIRE */}
             {drawingWire && (() => {
               const start = getPortPosition(drawingWire.sourceId, drawingWire.sourcePort);
               const path = getPreviewPath(start, mousePos, drawingWire.sourcePort, drawingWire.waypoints);
@@ -323,7 +304,7 @@ const App = () => {
 
         <div className="absolute top-8 left-8 pointer-events-none opacity-40">
            <h1 className="text-3xl font-black text-slate-400 italic uppercase tracking-tighter">MISO<span className="text-blue-500">SIM</span></h1>
-           <p className="text-[10px] font-mono text-slate-500 tracking-[0.2em] mt-1">GRID: 20px // ROUTING: HYBRID</p>
+           <p className="text-[10px] font-mono text-slate-500 tracking-[0.2em] mt-1">ROUTING: FIXED SHOULDER (40px)</p>
         </div>
       </div>
     </div>
