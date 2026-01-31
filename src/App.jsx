@@ -2,6 +2,9 @@ import React, { useState, useRef } from 'react';
 import { Activity, Battery, Zap, Settings, ChevronRight, ChevronLeft, Plus, Triangle, Trash2 } from 'lucide-react';
 import Draggable from 'react-draggable';
 
+// --- CONFIGURATION ---
+const GRID_SIZE = 40; // The magic number. Everything snaps to this.
+
 // --- COMPONENT BOX ---
 const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent, onPortClick }) => {
   const nodeRef = useRef(null);
@@ -17,7 +20,7 @@ const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent, onPo
   return (
     <Draggable 
       nodeRef={nodeRef} 
-      grid={[20, 20]} 
+      grid={[GRID_SIZE, GRID_SIZE]} // <--- THIS FORCES THE SNAP
       bounds="parent" 
       position={{x: data.x, y: data.y}} 
       onDrag={(e, ui) => handleDrag(data.id, ui.x, ui.y)}
@@ -25,6 +28,8 @@ const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent, onPo
     >
       <div 
         ref={nodeRef}
+        // We set specific dimensions that match our grid multiples
+        // Standard = 4 grid cells wide (160px). Ground = 2.4 cells (96px)
         className={`absolute bg-white border-2 border-slate-900 rounded-xl shadow-lg cursor-grab active:cursor-grabbing hover:border-blue-500 transition-colors group z-10 
         ${data.type === 'Ground' ? 'w-24 h-24 flex justify-center items-center' : 'w-40 p-4'}`}
       >
@@ -79,11 +84,13 @@ const App = () => {
   const [showMath, setShowMath] = useState(false);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
+  // INITIAL STATE: Notice all numbers are multiples of 40 (GRID_SIZE)
+  // This ensures they start perfectly aligned on the dots.
   const [components, setComponents] = useState([
-    { id: 1, type: 'Resistor', value: 100, x: 300, y: 100, unit: 'Ω' },
-    { id: 2, type: 'Battery', value: 9, x: 50, y: 250, unit: 'V' },
-    { id: 3, type: 'Ground', value: 0, x: 550, y: 250, unit: 'V' },
-    { id: 4, type: 'Resistor', value: 220, x: 300, y: 400, unit: 'Ω' },
+    { id: 1, type: 'Resistor', value: 100, x: 320, y: 120, unit: 'Ω' },
+    { id: 2, type: 'Battery', value: 9, x: 40, y: 200, unit: 'V' },
+    { id: 3, type: 'Ground', value: 0, x: 600, y: 200, unit: 'V' },
+    { id: 4, type: 'Resistor', value: 220, x: 320, y: 360, unit: 'Ω' },
   ]);
 
   const [wires, setWires] = useState([]); 
@@ -92,13 +99,14 @@ const App = () => {
   // --- ACTIONS ---
   const addComponent = (type) => {
     const newId = Math.max(...components.map(c => c.id), 0) + 1;
-    const offset = components.length * 20; 
+    // Snap new items to grid
+    const offset = (components.length * GRID_SIZE) % 400; 
     setComponents([...components, { 
       id: newId, 
       type, 
       value: type === 'Resistor' ? 100 : 0, 
-      x: 100 + offset, 
-      y: 100 + offset, 
+      x: 120 + offset, 
+      y: 120 + offset, 
       unit: type === 'Resistor' ? 'Ω' : 'V' 
     }]);
   };
@@ -135,7 +143,13 @@ const App = () => {
 
   const handleMouseMove = (e) => {
     if (drawingWire) {
-      setMousePos({ x: e.clientX - 80, y: e.clientY }); 
+      // Snap ghost wire to grid too!
+      // This makes the ghost wire feel "magnetic"
+      const rawX = e.clientX - 80;
+      const rawY = e.clientY;
+      const snapX = Math.round(rawX / GRID_SIZE) * GRID_SIZE;
+      const snapY = Math.round(rawY / GRID_SIZE) * GRID_SIZE;
+      setMousePos({ x: snapX, y: snapY }); 
     }
   };
 
@@ -151,20 +165,17 @@ const App = () => {
     };
   };
 
-  // --- RECTANGULAR ROUTING ENGINE ---
+  // --- RECTANGULAR ROUTING ENGINE (GRID AWARE) ---
   const generatePath = (start, end, sourcePort, targetPort) => {
-    const OFFSET = 50; // The "Stub" distance you asked for
+    // We use GRID_SIZE (40) for the stub.
+    // This ensures the first turn happens exactly on a grid line.
+    const OFFSET = GRID_SIZE; 
     
-    // 1. Calculate "Exit Points" (Stubs)
-    // If Right Port, go Right (+OFFSET). If Left Port, go Left (-OFFSET).
     const startStubX = sourcePort === 'right' ? start.x + OFFSET : start.x - OFFSET;
     const endStubX = targetPort === 'right' ? end.x + OFFSET : end.x - OFFSET;
 
-    // 2. Calculate the "Middle Street" (Vertical Riser)
     const midX = (startStubX + endStubX) / 2;
 
-    // 3. Construct the 5-point path
-    // Move to Start -> Drive to StartStub -> Drive to MidX -> Drive Down to EndY -> Drive to EndStub -> Finish
     return `M ${start.x} ${start.y} 
             L ${startStubX} ${start.y} 
             L ${midX} ${start.y} 
@@ -195,21 +206,16 @@ const App = () => {
 
       {/* CANVAS */}
       <div className="relative flex-grow bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:40px_40px]">
-        
-        {/* --- WIRE LAYER --- */}
+        {/* Wire Layer */}
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
-          
-          {/* PERMANENT WIRES */}
           {wires.map(wire => {
             const start = getPortPosition(wire.source, wire.sourcePort);
             const end = getPortPosition(wire.target, wire.targetPort);
             return <path key={wire.id} d={generatePath(start, end, wire.sourcePort, wire.targetPort)} stroke="#3b82f6" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })}
-
-          {/* GHOST WIRE */}
           {drawingWire && (() => {
             const start = getPortPosition(drawingWire.sourceId, drawingWire.sourcePort);
-            // We guess the mouse is approaching from the opposite side, or just assume standard Right-to-Left
+            // We force the mouse target to also be Right/Left based on approach
             const targetPort = drawingWire.sourcePort === 'right' ? 'left' : 'right';
             return <path d={generatePath(start, mousePos, drawingWire.sourcePort, targetPort)} stroke="#cbd5e1" strokeWidth="4" strokeDasharray="10,10" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })()}
@@ -229,7 +235,7 @@ const App = () => {
         <div className="absolute top-8 left-8 pointer-events-none">
           <h1 className="text-2xl font-black tracking-tight text-slate-800 italic uppercase">MISO<span className="text-blue-600 font-sans">CIRCUITS</span></h1>
           <p className="text-[10px] font-mono text-slate-400 tracking-[0.2em] mt-1">
-            WIRES: {wires.length} // TYPE: MANHATTAN_ROUTING
+            GRID: {GRID_SIZE}px // SNAP: ACTIVE
           </p>
         </div>
       </div>
