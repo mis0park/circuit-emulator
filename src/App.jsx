@@ -1,11 +1,11 @@
-import React, { useState, useRef } from 'react';
-import { Activity, Battery, Zap, Triangle, Trash2, Plus } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Activity, Battery, Zap, Triangle, Trash2, Plus, X } from 'lucide-react';
 import Draggable from 'react-draggable';
 
 // --- CONFIGURATION ---
-// 1. Denser Grid: 20px instead of 40px
 const GRID_SIZE = 20; 
 
+// --- COMPONENT BOX ---
 const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent, onPortClick }) => {
   const nodeRef = useRef(null);
   
@@ -17,12 +17,8 @@ const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent, onPo
     }
   };
 
-  // Dimensions must be multiples of 20 (GRID_SIZE)
-  // Standard: 160px (8 cells) x 80px (4 cells)
-  // Ground: 80px (4 cells) x 80px (4 cells)
-  const isGround = data.type === 'Ground';
-  const widthClass = isGround ? 'w-20' : 'w-40'; 
-  const heightClass = 'h-20'; 
+  const width = data.type === 'Ground' ? 80 : 160;
+  const height = 80;
 
   return (
     <Draggable 
@@ -35,8 +31,9 @@ const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent, onPo
     >
       <div 
         ref={nodeRef}
-        className={`absolute bg-white border-2 border-slate-900 rounded-lg shadow-md hover:shadow-xl hover:border-blue-500 transition-all group z-10 flex items-center justify-center
-        ${widthClass} ${heightClass}`}
+        style={{ width, height }}
+        onClick={(e) => e.stopPropagation()} // Prevent dropping a wire node when clicking component
+        className="absolute bg-white border-2 border-slate-900 rounded-lg shadow-md hover:shadow-xl hover:border-blue-500 transition-all group z-20 flex items-center justify-center"
       >
         <button 
           onClick={(e) => { e.stopPropagation(); deleteComponent(data.id); }}
@@ -63,37 +60,40 @@ const CircuitComponent = ({ data, updateValue, handleDrag, deleteComponent, onPo
         {/* PORTS */}
         <div 
           onClick={(e) => { e.stopPropagation(); onPortClick(data.id, 'left'); }}
-          className="no-drag absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center cursor-crosshair hover:scale-125 transition-transform"
+          className="no-drag absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center cursor-crosshair hover:scale-125 transition-transform bg-white rounded-full border border-slate-200 shadow-sm"
           title="Left Port"
         >
-          <div className="w-3 h-3 bg-slate-900 rounded-full border-2 border-white hover:bg-blue-500" />
+          <div className="w-2.5 h-2.5 bg-slate-900 rounded-full hover:bg-blue-500" />
         </div>
 
         <div 
           onClick={(e) => { e.stopPropagation(); onPortClick(data.id, 'right'); }}
-          className="no-drag absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center cursor-crosshair hover:scale-125 transition-transform"
+          className="no-drag absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center cursor-crosshair hover:scale-125 transition-transform bg-white rounded-full border border-slate-200 shadow-sm"
           title="Right Port"
         >
-          <div className="w-3 h-3 bg-slate-900 rounded-full border-2 border-white hover:bg-blue-500" />
+          <div className="w-2.5 h-2.5 bg-slate-900 rounded-full hover:bg-blue-500" />
         </div>
       </div>
     </Draggable>
   );
 };
 
+// --- MAIN APP ---
 const App = () => {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
   const [components, setComponents] = useState([
-    { id: 1, type: 'Battery', value: 9, x: 60, y: 100, unit: 'V' }, // Aligned to 20px grid
+    { id: 1, type: 'Battery', value: 9, x: 60, y: 100, unit: 'V' },
     { id: 2, type: 'Resistor', value: 100, x: 300, y: 60, unit: 'Ω' },
     { id: 3, type: 'Resistor', value: 220, x: 300, y: 180, unit: 'Ω' },
     { id: 4, type: 'Ground', value: 0, x: 540, y: 120, unit: 'V' },
   ]);
 
   const [wires, setWires] = useState([]); 
+  // drawingWire now holds a list of "waypoints" (corners) you've clicked
   const [drawingWire, setDrawingWire] = useState(null); 
 
+  // --- ACTIONS ---
   const addComponent = (type) => {
     const newId = Math.max(...components.map(c => c.id), 0) + 1;
     setComponents([...components, { 
@@ -119,29 +119,59 @@ const App = () => {
     setComponents(components.map(c => c.id === id ? { ...c, x, y } : c));
   };
 
+  // --- INTERACTIVE WIRING ENGINE ---
+
+  // 1. Click Canvas -> Add Corner (Waypoint)
+  const handleCanvasClick = (e) => {
+    if (drawingWire) {
+      // Don't add a point if we are hovering a port (let handlePortClick handle that)
+      const isOverPort = e.target.getAttribute('title')?.includes('Port');
+      if (isOverPort) return;
+
+      // Add the current mouse position as a "Hard Corner"
+      setDrawingWire({
+        ...drawingWire,
+        waypoints: [...drawingWire.waypoints, mousePos]
+      });
+    }
+  };
+
+  // 2. Click Port -> Start or Finish Wire
   const handlePortClick = (id, port) => {
     if (!drawingWire) {
-      setDrawingWire({ sourceId: id, sourcePort: port });
+      // START NEW WIRE
+      setDrawingWire({ 
+        sourceId: id, 
+        sourcePort: port, 
+        waypoints: [] // Start with no corners
+      });
     } else {
+      // FINISH WIRE
       if (drawingWire.sourceId !== id) {
         setWires([...wires, { 
           id: `w_${Date.now()}`, 
           source: drawingWire.sourceId, 
           sourcePort: drawingWire.sourcePort, 
           target: id,
-          targetPort: port 
+          targetPort: port,
+          waypoints: drawingWire.waypoints // Save the user's path
         }]);
       }
       setDrawingWire(null);
     }
   };
 
+  // 3. Right Click -> Cancel Wire
+  const handleRightClick = (e) => {
+    e.preventDefault();
+    setDrawingWire(null);
+  };
+
   const handleMouseMove = (e) => {
-    if (drawingWire) {
-      const snapX = Math.round((e.clientX - 80) / GRID_SIZE) * GRID_SIZE;
-      const snapY = Math.round(e.clientY / GRID_SIZE) * GRID_SIZE;
-      setMousePos({ x: snapX, y: snapY }); 
-    }
+    // Snap mouse to grid
+    const snapX = Math.round((e.clientX - 80) / GRID_SIZE) * GRID_SIZE;
+    const snapY = Math.round(e.clientY / GRID_SIZE) * GRID_SIZE;
+    setMousePos({ x: snapX, y: snapY }); 
   };
 
   const getPortPosition = (id, side) => {
@@ -156,48 +186,32 @@ const App = () => {
     };
   };
 
-  // --- AGGRESSIVE ROUTER (Fixes the "It Doesn't" issue) ---
-  const generatePath = (start, end, sourcePort, targetPort) => {
-    const STUB = 20; // Short stub for the denser grid
+  // --- MANUAL PATH GENERATOR ---
+  // Connects Start -> Waypoint1 -> Waypoint2 -> ... -> End
+  const generateManualPath = (start, end, waypoints) => {
+    let d = `M ${start.x} ${start.y}`;
     
-    let startStubX = sourcePort === 'right' ? start.x + STUB : start.x - STUB;
-    let endStubX = targetPort === 'right' ? end.x + STUB : end.x - STUB;
+    // Draw lines to each waypoint
+    waypoints.forEach(pt => {
+      d += ` L ${pt.x} ${pt.y}`;
+    });
 
-    let midX;
+    // Draw line to final destination
+    d += ` L ${end.x} ${end.y}`;
     
-    // Check if we are doing a "U-Turn" (Connecting same sides)
-    const isSameSide = sourcePort === targetPort;
-    const isCloseX = Math.abs(start.x - end.x) < 100; // Components are roughly in the same column
-
-    if (isSameSide && isCloseX) {
-        // AGGRESSIVE PUSH: Force the wire 60px out to clear the components
-        const pushDir = sourcePort === 'right' ? 1 : -1;
-        const pushDistance = 60; 
-        
-        // Find the "outermost" point and add the push distance
-        if (sourcePort === 'right') {
-            midX = Math.max(start.x, end.x) + 160 + pushDistance; // Clear the whole component width
-        } else {
-            midX = Math.min(start.x, end.x) - pushDistance;
-        }
-    } else {
-        // Standard split (normal behavior)
-        midX = (startStubX + endStubX) / 2;
-    }
-
-    return `M ${start.x} ${start.y} 
-            L ${startStubX} ${start.y} 
-            L ${midX} ${start.y} 
-            L ${midX} ${end.y} 
-            L ${endStubX} ${end.y} 
-            L ${end.x} ${end.y}`;
+    return d;
   };
 
   return (
-    <div className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans text-slate-900" onMouseMove={handleMouseMove}>
+    <div 
+      className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans text-slate-900 select-none"
+      onMouseMove={handleMouseMove}
+      onClick={handleCanvasClick} // Listen for clicks on the background
+      onContextMenu={handleRightClick} // Listen for Right Click to Cancel
+    >
       
       {/* SIDEBAR */}
-      <div className="w-20 bg-white border-r border-slate-200 flex flex-col items-center py-6 gap-6 z-20 shadow-sm">
+      <div className="w-20 bg-white border-r border-slate-200 flex flex-col items-center py-6 gap-6 z-30 shadow-sm relative" onClick={(e) => e.stopPropagation()}>
         <div className="p-3 bg-blue-600 rounded-xl text-white shadow-lg mb-4"><Zap size={24} fill="currentColor" /></div>
         
         {['Resistor', 'Battery', 'Ground'].map(type => (
@@ -208,24 +222,62 @@ const App = () => {
             <span className="text-[9px] font-bold uppercase tracking-wide">{type === 'Ground' ? 'GND' : type}</span>
           </button>
         ))}
+        
+        {/* Cancel Button (Visible when drawing) */}
+        {drawingWire && (
+          <div className="absolute bottom-10 flex flex-col items-center gap-2 animate-pulse">
+            <div className="p-2 bg-red-100 text-red-500 rounded-full"><X size={20} /></div>
+            <span className="text-[9px] font-bold text-red-500 text-center leading-tight">RIGHT CLICK<br/>TO CANCEL</span>
+          </div>
+        )}
       </div>
 
-      {/* CANVAS: 20px Grid Size */}
-      <div className="relative flex-grow bg-[radial-gradient(#cbd5e1_2px,transparent_2px)] [background-size:20px_20px] [background-position:0px_0px]">
+      {/* CANVAS */}
+      <div 
+        className="relative flex-grow"
+        style={{
+           // Darker, clearer grid dots
+           backgroundImage: 'radial-gradient(#64748b 2px, transparent 2px)',
+           backgroundSize: '20px 20px',
+           backgroundPosition: '0 0'
+        }}
+      >
         
-        <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
-          {wires.map(wire => {
-            const start = getPortPosition(wire.source, wire.sourcePort);
-            const end = getPortPosition(wire.target, wire.targetPort);
-            return <path key={wire.id} d={generatePath(start, end, wire.sourcePort, wire.targetPort)} stroke="#3b82f6" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
-          })}
-          
-          {drawingWire && (() => {
-            const start = getPortPosition(drawingWire.sourceId, drawingWire.sourcePort);
-            const targetPort = mousePos.x > start.x ? 'left' : 'right';
-            return <path d={generatePath(start, mousePos, drawingWire.sourcePort, targetPort)} stroke="#94a3b8" strokeWidth="3" strokeDasharray="6,6" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
-          })()}
-        </svg>
+        {/* Wire Layer */}
+        <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-10">
+          <svg className="w-full h-full overflow-visible">
+            
+            {/* 1. SAVED WIRES */}
+            {wires.map(wire => {
+              const start = getPortPosition(wire.source, wire.sourcePort);
+              const end = getPortPosition(wire.target, wire.targetPort);
+              const path = generateManualPath(start, end, wire.waypoints || []);
+              return <path key={wire.id} d={path} stroke="#3b82f6" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            })}
+            
+            {/* 2. ACTIVE DRAWING WIRE */}
+            {drawingWire && (() => {
+              const start = getPortPosition(drawingWire.sourceId, drawingWire.sourcePort);
+              // The "End" is currently the mouse cursor
+              const path = generateManualPath(start, mousePos, drawingWire.waypoints);
+              
+              return (
+                <g>
+                   {/* Main Ghost Line */}
+                   <path d={path} stroke="#3b82f6" strokeWidth="3" strokeDasharray="6,6" fill="none" strokeLinecap="round" strokeLinejoin="round" className="opacity-60" />
+                   
+                   {/* Draw Little Dots at Waypoints so you see where you clicked */}
+                   {drawingWire.waypoints.map((pt, i) => (
+                     <circle key={i} cx={pt.x} cy={pt.y} r="3" fill="#3b82f6" />
+                   ))}
+                   
+                   {/* Cursor Target */}
+                   <circle cx={mousePos.x} cy={mousePos.y} r="4" fill="none" stroke="#3b82f6" strokeWidth="2" />
+                </g>
+              );
+            })()}
+          </svg>
+        </div>
 
         {components.map((comp) => (
           <CircuitComponent 
@@ -238,9 +290,11 @@ const App = () => {
           />
         ))}
 
-        <div className="absolute top-8 left-8 pointer-events-none opacity-50">
-           <h1 className="text-3xl font-black text-slate-300 italic uppercase tracking-tighter">MISO<span className="text-blue-400">SIM</span></h1>
-           <p className="text-[10px] font-mono text-slate-400 tracking-[0.2em] mt-1">DENSITY: HIGH // 20px</p>
+        <div className="absolute top-8 left-8 pointer-events-none opacity-40">
+           <h1 className="text-3xl font-black text-slate-400 italic uppercase tracking-tighter">MISO<span className="text-blue-500">SIM</span></h1>
+           <p className="text-[10px] font-mono text-slate-500 tracking-[0.2em] mt-1">
+             {drawingWire ? "CLICK GRID TO ADD CORNER // R-CLICK CANCEL" : "CLICK PORT TO START WIRE"}
+           </p>
         </div>
       </div>
     </div>
