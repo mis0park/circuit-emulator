@@ -83,6 +83,7 @@ const App = () => {
     { id: 1, type: 'Resistor', value: 100, x: 300, y: 100, unit: 'Ω' },
     { id: 2, type: 'Battery', value: 9, x: 50, y: 250, unit: 'V' },
     { id: 3, type: 'Ground', value: 0, x: 550, y: 250, unit: 'V' },
+    { id: 4, type: 'Resistor', value: 220, x: 300, y: 400, unit: 'Ω' },
   ]);
 
   const [wires, setWires] = useState([]); 
@@ -150,6 +151,28 @@ const App = () => {
     };
   };
 
+  // --- RECTANGULAR ROUTING ENGINE ---
+  const generatePath = (start, end, sourcePort, targetPort) => {
+    const OFFSET = 50; // The "Stub" distance you asked for
+    
+    // 1. Calculate "Exit Points" (Stubs)
+    // If Right Port, go Right (+OFFSET). If Left Port, go Left (-OFFSET).
+    const startStubX = sourcePort === 'right' ? start.x + OFFSET : start.x - OFFSET;
+    const endStubX = targetPort === 'right' ? end.x + OFFSET : end.x - OFFSET;
+
+    // 2. Calculate the "Middle Street" (Vertical Riser)
+    const midX = (startStubX + endStubX) / 2;
+
+    // 3. Construct the 5-point path
+    // Move to Start -> Drive to StartStub -> Drive to MidX -> Drive Down to EndY -> Drive to EndStub -> Finish
+    return `M ${start.x} ${start.y} 
+            L ${startStubX} ${start.y} 
+            L ${midX} ${start.y} 
+            L ${midX} ${end.y} 
+            L ${endStubX} ${end.y} 
+            L ${end.x} ${end.y}`;
+  };
+
   return (
     <div className="flex h-screen w-screen bg-slate-50 overflow-hidden font-sans text-slate-900" onMouseMove={handleMouseMove}>
       
@@ -176,29 +199,19 @@ const App = () => {
         {/* --- WIRE LAYER --- */}
         <svg className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
           
-          {/* PERMANENT WIRES (Now STEPPED) */}
+          {/* PERMANENT WIRES */}
           {wires.map(wire => {
             const start = getPortPosition(wire.source, wire.sourcePort);
             const end = getPortPosition(wire.target, wire.targetPort);
-            
-            // --- MANHATTAN ROUTING LOGIC ---
-            // 1. Calculate the middle X point between start and end
-            const midX = (start.x + end.x) / 2;
-
-            // 2. Create the path: 
-            // Move to Start -> Horizontal to Mid -> Vertical to End Height -> Horizontal to End
-            const pathData = `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`;
-
-            return <path key={wire.id} d={pathData} stroke="#3b82f6" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            return <path key={wire.id} d={generatePath(start, end, wire.sourcePort, wire.targetPort)} stroke="#3b82f6" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })}
 
-          {/* GHOST WIRE (Also STEPPED) */}
+          {/* GHOST WIRE */}
           {drawingWire && (() => {
             const start = getPortPosition(drawingWire.sourceId, drawingWire.sourcePort);
-            const midX = (start.x + mousePos.x) / 2;
-            const pathData = `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${mousePos.y} L ${mousePos.x} ${mousePos.y}`;
-
-            return <path d={pathData} stroke="#cbd5e1" strokeWidth="4" strokeDasharray="10,10" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+            // We guess the mouse is approaching from the opposite side, or just assume standard Right-to-Left
+            const targetPort = drawingWire.sourcePort === 'right' ? 'left' : 'right';
+            return <path d={generatePath(start, mousePos, drawingWire.sourcePort, targetPort)} stroke="#cbd5e1" strokeWidth="4" strokeDasharray="10,10" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
           })()}
         </svg>
 
@@ -216,7 +229,7 @@ const App = () => {
         <div className="absolute top-8 left-8 pointer-events-none">
           <h1 className="text-2xl font-black tracking-tight text-slate-800 italic uppercase">MISO<span className="text-blue-600 font-sans">CIRCUITS</span></h1>
           <p className="text-[10px] font-mono text-slate-400 tracking-[0.2em] mt-1">
-            WIRES: {wires.length} // TYPE: ORTHOGONAL
+            WIRES: {wires.length} // TYPE: MANHATTAN_ROUTING
           </p>
         </div>
       </div>
